@@ -21,6 +21,9 @@ logger = logging.getLogger("pill_bot")
 # ========== КОНФИГУРАЦИЯ ==========
 API_TOKEN = '8165334459:AAHlZkOCIMDHbcW29NN_hW6iBE47Y5_nt5Q'
 
+# ========== НАСТРОЙКИ ВРЕМЕНИ ==========
+TIME_OFFSET = 3  # Смещение времени в часах (например, +3 для Москвы)
+
 # ========== ВРЕМЯ ПРИЕМА ТАБЛЕТОК ==========
 PILL_HOUR = 16    # 16 часов дня
 PILL_MINUTE = 30 # 30 минут
@@ -33,17 +36,34 @@ dp = Dispatcher()
 # ========== ХРАНИЛИЩЕ ДАННЫХ ==========
 user_states: Dict[int, Dict[str, Any]] = {}
 
+# ========== ФУНКЦИИ ДЛЯ РАБОТЫ СО ВРЕМЕНЕМ ==========
+
+def get_local_time() -> datetime.datetime:
+    """Возвращает текущее время с учетом смещения"""
+    utc_now = datetime.datetime.utcnow()
+    local_now = utc_now + datetime.timedelta(hours=TIME_OFFSET)
+    return local_now
+
+def format_local_time(dt: datetime.datetime = None, format_str: str = '%H:%M:%S') -> str:
+    """Форматирует время с учетом смещения"""
+    if dt is None:
+        dt = get_local_time()
+    return dt.strftime(format_str)
+
 # ========== ТЕКСТЫ СООБЩЕНИЙ ==========
+current_hour_local = PILL_HOUR  # Используем локальное время
+current_minute_local = PILL_MINUTE
+
 WELCOME_TEXT = f"""
 💊 *Вспоминаем о приеме таблеточек)*
 
 Это как всегда твой Кирилл🥰
 Я помогу тебе не забывать принимать таблеточки
-Ежедневно в {PILL_HOUR:02d}:{PILL_MINUTE:02d} я буду присылать напоминание
+Ежедневно в {current_hour_local:02d}:{current_minute_local:02d} (МСК) я буду присылать напоминание
 """
 
 PILL_TAKEN_TEXT = """
-♥️ *Чудесно, ты умничка! Ещё одна таблетка выпита.🔥💪🥰*
+✅ *Чудесно, ты умничка! Ещё одна таблетка выпита.*
 
 Запись о приеме сохранена🤗.
 """
@@ -61,7 +81,7 @@ REMINDER_TEXT = f"""
 Солнышко, пора пить таблеточки! 
 Я знаю ты не любишь, но надо❤️
 Дай немного позаботиться о тебе 😚
-Время приема: {PILL_HOUR:02d}:{PILL_MINUTE:02d}
+*Время приема (МСК):* {current_hour_local:02d}:{current_minute_local:02d}
 """
 
 # ========== ФУНКЦИИ ДЛЯ СОЗДАНИЯ КНОПОК ==========
@@ -103,7 +123,7 @@ async def handle_start(message: Message):
         user_states[user_id] = {
             'started': True,
             'username': username,
-            'join_date': datetime.datetime.now().isoformat()
+            'join_date': get_local_time().isoformat()
         }
         
         logger.info(f"Новый пользователь: {user_id} ({username})")
@@ -125,7 +145,7 @@ async def handle_time_to_pill(callback: CallbackQuery):
     try:
         await callback.answer()
         
-        now = datetime.datetime.now()
+        now = get_local_time()
         target_time = now.replace(hour=PILL_HOUR, minute=PILL_MINUTE, second=0, microsecond=0)
         
         if now >= target_time:
@@ -142,9 +162,9 @@ async def handle_time_to_pill(callback: CallbackQuery):
             time_text = f"{hours} ч. {minutes} мин."
         
         response = (
-            f"⏰💋 *Текущее время:* {now.strftime('%H:%M')}\n"
+            f"⏰💋 *Текущее время (МСК):* {now.strftime('%H:%M')}\n"
             f"⏳❤️ *До приёма таблеточек:* {time_text}\n"
-            f"💊🥰 *Следующий приём таблеточек:* {PILL_HOUR:02d}:{PILL_MINUTE:02d}"
+            f"💊🥰 *Следующий приём таблеточек (МСК):* {PILL_HOUR:02d}:{PILL_MINUTE:02d}"
         )
         
         await callback.message.answer(
@@ -173,12 +193,12 @@ async def handle_pill_taken(callback: CallbackQuery):
         await callback.answer("Отлично! 😚")
         
         user_id = callback.from_user.id
-        now = datetime.datetime.now()
+        now = get_local_time()
         
         user_states[user_id]['last_taken'] = now.isoformat()
         user_states[user_id]['status'] = 'taken'
         
-        response = PILL_TAKEN_TEXT + f"\n\n🕒 *Время приёма:* {now.strftime('%H:%M:%S')}"
+        response = PILL_TAKEN_TEXT + f"\n\n🕒 *Время приёма (МСК):* {now.strftime('%H:%M:%S')}"
         
         await callback.message.answer(
             response,
@@ -237,13 +257,13 @@ async def handle_back_to_main(callback: CallbackQuery):
 async def check_daily_reminder():
     while True:
         try:
-            now = datetime.datetime.now()
+            now = get_local_time()  # Используем локальное время
             current_hour = now.hour
             current_minute = now.minute
             
-            # Проверяем, наступило ли время приема (02:15)
+            # Проверяем, наступило ли время приема (16:30 по МСК)
             if current_hour == PILL_HOUR and current_minute == PILL_MINUTE:
-                logger.info(f"⏰🥹 Время {PILL_HOUR:02d}:{PILL_MINUTE:02d}! Отправляю напоминания...")
+                logger.info(f"⏰🥹 Время {PILL_HOUR:02d}:{PILL_MINUTE:02d} (МСК)! Отправляю напоминания...")
                 
                 # Получаем текущую дату и время для логов
                 current_time_str = now.strftime('%H:%M:%S')
@@ -255,7 +275,7 @@ async def check_daily_reminder():
                         reminder_message = (
                             f"⏰ *НАПОМИНАНИЕ О ПРИЕМЕ ТАБЛЕТОЧЕК🤗*\n\n"
                             f"Солнышко, пора выпить таблеточки😚❤️!\n"
-                            f"🕒 *Время приема:* {PILL_HOUR:02d}:{PILL_MINUTE:02d}\n"
+                            f"🕒 *Время приема (МСК):* {PILL_HOUR:02d}:{PILL_MINUTE:02d}\n"
                             f"📅 *Дата:* {current_date_str}"
                         )
                         
@@ -266,7 +286,7 @@ async def check_daily_reminder():
                             reply_markup=create_main_keyboard()
                         )
                         
-                        logger.info(f"✅ Напоминание отправлено пользователю {user_id} в {current_time_str}")
+                        logger.info(f"✅ Напоминание отправлено пользователю {user_id} в {current_time_str} (МСК)")
                         
                     except Exception as e:
                         error_msg = str(e)
@@ -292,9 +312,10 @@ async def check_daily_reminder():
 async def main():
     try:
         logger.info("🤖 Бот запускается...")
-        logger.info(f"💊 Время приема таблеток: {PILL_HOUR:02d}:{PILL_MINUTE:02d}")
-        logger.info(f"📅 Текущая дата: {datetime.datetime.now().strftime('%Y-%m-%d')}")
-        logger.info(f"⏰ Текущее время: {datetime.datetime.now().strftime('%H:%M:%S')}")
+        logger.info(f"⏰ Смещение времени: +{TIME_OFFSET} часа")
+        logger.info(f"💊 Время приема таблеток (МСК): {PILL_HOUR:02d}:{PILL_MINUTE:02d}")
+        logger.info(f"📅 Текущая дата (МСК): {get_local_time().strftime('%Y-%m-%d')}")
+        logger.info(f"⏰ Текущее время (МСК): {get_local_time().strftime('%H:%M:%S')}")
         
         # Проверяем подключение к Telegram API
         try:
