@@ -1,2 +1,0 @@
-# Bolivk
-Play
